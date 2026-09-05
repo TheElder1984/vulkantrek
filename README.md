@@ -83,4 +83,4 @@ This writes `docs/bridge-preview.png` and exits. Saves go to Godot’s `user://m
 
 ## Reference
 
-Trek is Nels Anderson’s game. This project contains new code and procedural artwork, with no original executable, text, or graphics redistributed. The gameplay reference is **Trek 3.1 (1994)**, particularly `TREK.DOC` and `TREK.REF` from its [original shareware archive](https://www.dosgamesarchive.com/file/trek/trk31). Godot’s [renderer documentation](https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html) describes Forward+ and Vulkan.
+Trek is Nels Anderson’s game. This project contains new code and procedural artwork, with no original executable, text, or graphics redistributed. The gameplay reference is particularly `TREK.DOC` and `TREK.REF` from its [original shareware archive](https://www.dosgamesarchive.com/file/trek/trk31). Godot’s [renderer documentation](https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html) describes Forward+ and Vulkan.
