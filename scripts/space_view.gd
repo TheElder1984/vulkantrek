@@ -137,6 +137,25 @@ func make_grid() -> void:
 		lines.surface_add_vertex(Vector3(14, -0.7, v))
 	lines.surface_end()
 	mesh(self, lines, Vector3.ZERO, Vector3.ONE, material(Color("123144"), 0, 0.4))
+	# Label cell centers on opposing edges; rows follow world Z, columns world X.
+	for i in 8:
+		var center = (i - 3.5) * 3.5
+		for edge in [-15.0, 15.0]:
+			grid_label("R%d" % (i + 1), Vector3(edge, -0.65, center))
+			grid_label("C%d" % (i + 1), Vector3(center, -0.65, edge))
+
+func grid_label(text: String, pos: Vector3) -> void:
+	var marker = Label3D.new()
+	marker.text = text
+	marker.position = pos
+	marker.font_size = 48
+	marker.pixel_size = 0.025
+	marker.modulate = Color("79d9e9")
+	marker.outline_modulate = Color("050e18")
+	marker.outline_size = 8
+	marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	marker.shaded = false
+	add_child(marker)
 
 func refresh() -> void:
 	if sim == null: return
@@ -214,10 +233,13 @@ func play_effect(kind: String, origin: Vector2i, target: Vector2i) -> void:
 func _process(delta: float) -> void:
 	clock += delta
 	if cinematic:
+		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 		var focus = world_pos(sim.sector) if sim != null else Vector3.ZERO
 		camera.position = focus + Vector3(6.5 + sin(clock * 0.06) * 0.5, 4.5, 8.5)
 		camera.look_at(focus + Vector3(0, 0, -1.5))
 	else:
+		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		camera.size = 38.0
 		camera.position = camera_base
 		camera.look_at(Vector3.ZERO)
 	if is_instance_valid(player_ship): player_ship.position.y = sin(clock * 0.7) * 0.08
