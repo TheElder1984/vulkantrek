@@ -1,8 +1,8 @@
 # VulkanTrek
 
-A playable Godot 4 reconstruction of EGATrek’s command bridge, with Vulkan Forward+, procedural 3D ships, a nebula sky, glowing engines, shield fields, weapon effects, and a modern console.
+A playable Godot 4 reconstruction of Trek’s command bridge, with Vulkan Forward+, procedural 3D ships, a nebula sky, glowing engines, shield fields, weapon effects, and a modern console.
 
-**Status: playable reconstruction, not yet an exact EGATrek replacement.** The familiar command loop is implemented. Combat constants, mission generation, timing, scoring, and uncommon encounters still need comparison against the DOS executable. See [the parity register](docs/PARITY.md) and [implementation plan](docs/PLAN.md).
+**Status: playable reconstruction, not yet an exact Trek replacement.** The familiar command loop is implemented. Combat constants, mission generation, timing, scoring, and uncommon encounters still need comparison against the DOS executable. See [the parity register](docs/PARITY.md) and [implementation plan](docs/PLAN.md).
 
 ![VulkanTrek bridge](docs/bridge-preview.png)
 
@@ -83,4 +83,4 @@ This writes `docs/bridge-preview.png` and exits. Saves go to Godot’s `user://m
 
 ## Reference
 
-EGATrek is Nels Anderson’s game. This project contains new code and procedural artwork, with no original executable, text, or graphics redistributed. The gameplay reference is **EGATrek 3.1 (1994)**, particularly `EGATREK.DOC` and `EGATREK.REF` from its [original shareware archive](https://www.dosgamesarchive.com/file/egatrek/egatrk31). Godot’s [renderer documentation](https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html) describes Forward+ and Vulkan.
+Trek is Nels Anderson’s game. This project contains new code and procedural artwork, with no original executable, text, or graphics redistributed. The gameplay reference is **Trek 3.1 (1994)**, particularly `TREK.DOC` and `TREK.REF` from its [original shareware archive](https://www.dosgamesarchive.com/file/trek/trk31). Godot’s [renderer documentation](https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html) describes Forward+ and Vulkan.
