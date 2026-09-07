@@ -14,6 +14,16 @@ func fixture() -> TrekSimulation:
 	return sim
 
 func _init() -> void:
+	# External observations, not expectations generated from our own constants.
+	var starts = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/egatrek31_starts.json"))
+	expect(starts is Dictionary and starts.samples.size() == 5, "five original rank observations available")
+	for sample in starts.samples:
+		var original_start = Sim.new()
+		original_start.new_game(1994, int(sample.rank))
+		expect(original_start.warp == sample.warp, "observed starting warp at rank %d" % sample.rank)
+		expect(original_start.stardate == sample.stardate, "observed starting date at rank %d" % sample.rank)
+		expect(original_start.energy == sample.main_energy, "observed main bank at rank %d" % sample.rank)
+		expect(original_start.shields == sample.shields, "observed full shield bank at rank %d" % sample.rank)
 	var a = fixture()
 	var b = fixture()
 	expect(a.galaxy == b.galaxy, "seed reproduces galaxy")
@@ -28,8 +38,9 @@ func _init() -> void:
 	var power = a.energy
 	expect(not a.execute("M99"), "reject invalid coordinates")
 	expect(a.elapsed == time and a.energy == power, "invalid move has no resource cost")
-	expect(not a.execute("M11"), "obstructed route rejected")
+	expect(not a.execute("M22"), "obstructed route rejected")
 	expect(a.elapsed == time, "blocked movement consumes no time")
+	a.shields = 1500
 	expect(a.execute("MAX"), "max shields")
 	expect(a.shields == 2500 and a.energy == power - 1000, "shield transfer conserves energy")
 	power = a.energy
@@ -45,7 +56,7 @@ func _init() -> void:
 	expect(a.execute("LASERS 900 650"), "laser salvo accepted")
 	expect(a.kills == 2, "opening laser salvo destroys both targets")
 	expect(is_equal_approx(a.elapsed, 0.1), "salvo consumes one turn")
-	expect(a.laser_energy == 450, "laser bank debited")
+	expect(a.energy == power - 1550 + 40, "lasers debit main power before turn regeneration")
 	var snapshot = a.galaxy.duplicate(true)
 	expect(a.save_game("/tmp/vulkantrek-test.save") == OK, "save succeeds")
 	expect(b.load_game("/tmp/vulkantrek-test.save") == OK, "load succeeds")
@@ -84,10 +95,10 @@ func _init() -> void:
 	a.torpedoes = 2
 	a.reserves = 0.5
 	a.execute("DOCK")
-	expect(a.energy == 500 and a.torpedoes == 2 and a.reserves == 2, "research station supplies only life reserves")
+	expect(a.energy == 620 and a.torpedoes == 2 and a.reserves == 2, "research station supplies life reserves plus normal timed regeneration")
 	a.galaxy[27][0].base_type = 3
 	a.execute("DOCK")
-	expect(a.torpedoes == 10 and a.energy == 500, "supply station does not refuel main bank")
+	expect(a.torpedoes == 10 and a.energy == 740, "supply station adds only normal timed regeneration")
 	a = fixture()
 	a.galaxy[27] = [a.make_object("planet", Vector2i(4,2))]
 	expect(not a.execute("LAND"), "cannot land without orbit")
@@ -113,8 +124,8 @@ func _init() -> void:
 	a.systems.impulse = 49
 	expect(not a.execute("M54"), "impulse damage threshold")
 	a.systems.impulse = 100
-	a.systems.computer = 99
-	expect(not a.execute("M54"), "automatic navigation requires healthy computer")
+	a.systems.computer = 49
+	expect(not a.execute("M54"), "automatic navigation requires computer at least 50%")
 	expect(a.execute("MOVE M 0.0 0.1"), "manual navigation works without computer")
 	expect(a.sector == Vector2i(4, 4), "manual sector displacement")
 	a = fixture()

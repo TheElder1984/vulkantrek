@@ -42,9 +42,10 @@ func _draw() -> void:
 			elif cell == hover: color = Color("1c3548")
 			draw_rect(box, color)
 			if cell == selected: draw_rect(box, CYAN, false, 1)
+			if galaxy_mode and sim.relief.get("state") == "active" and sim.relief.quadrant == r * 8 + c: draw_rect(box.grow(-2), Color("ffce71"), false, 2)
 			var center = box.get_center()
 			if galaxy_mode:
-				var value: String = sim.chart.get(str(r * 8 + c), "···") if sim.systems.computer >= 50 else "---"
+				var value: String = sim.chart_value(r * 8 + c)
 				var ink = MUTED if value == "···" else Color("a3b8c7")
 				if value[0].is_valid_int() and int(value[0]) > 0: ink = Color("f08485")
 				elif value[1].is_valid_int() and int(value[1]) > 0: ink = Color("edc18b")

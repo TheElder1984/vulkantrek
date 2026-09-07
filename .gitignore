@@ -1,3 +1,5 @@
 .godot/
 build/
 *.tmp
+.reference/
+__pycache__/

@@ -1,0 +1,57 @@
+{
+  "ruleset": 2,
+  "date": "2026-09-05",
+  "method": "tests/test_playthrough.gd; all state mutations through simulation commands",
+  "samples": [
+    {
+      "seed": 1994,
+      "won": true,
+      "elapsed": 17.82,
+      "deadline": 36,
+      "kills": 24,
+      "crew": 430,
+      "relief": "saved",
+      "orders": 119
+    },
+    {
+      "seed": 7,
+      "won": true,
+      "elapsed": 16.55,
+      "deadline": 36,
+      "kills": 24,
+      "crew": 429,
+      "relief": "saved",
+      "orders": 123
+    },
+    {
+      "seed": 42,
+      "won": true,
+      "elapsed": 18.58,
+      "deadline": 36,
+      "kills": 24,
+      "crew": 430,
+      "relief": "saved",
+      "orders": 122
+    },
+    {
+      "seed": 123,
+      "won": true,
+      "elapsed": 19.52,
+      "deadline": 36,
+      "kills": 24,
+      "crew": 430,
+      "relief": "saved",
+      "orders": 125
+    },
+    {
+      "seed": 2026,
+      "won": true,
+      "elapsed": 20.56,
+      "deadline": 36,
+      "kills": 24,
+      "crew": 430,
+      "relief": "saved",
+      "orders": 133
+    }
+  ]
+}

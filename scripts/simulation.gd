@@ -6,7 +6,10 @@ signal effect(kind: String, origin: Vector2i, target: Vector2i)
 const SIZE = 8
 const MAIN_CAP = 5000.0
 const SHIELD_CAP = 2500.0
-const LASER_CAP = 2000.0
+const LASER_SALVO_CAP = 2000.0
+const RULESET_VERSION = 2
+const START_WARP = 1.0
+const START_STARDATE = 3500.0
 const SYSTEMS = ["converter", "shields", "warp", "impulse", "lasers", "tubes", "short_scan", "long_scan", "computer", "life_support", "transporter", "shuttle"]
 var rng = RandomNumberGenerator.new()
 var galaxy: Array = []
@@ -14,13 +17,16 @@ var chart: Dictionary = {}
 var quadrant = Vector2i(3, 3)
 var sector = Vector2i(4, 3)
 var energy = MAIN_CAP
-var shields = 1500.0
-var laser_energy = LASER_CAP
+var shields = SHIELD_CAP
 var shields_up = false
 var heat = 0.0
-var warp = 5.0
-var stardate = 3200.0
+var warp = START_WARP
+var stardate = START_STARDATE
 var elapsed = 0.0
+var mission_deadline = 36.0
+var relief: Dictionary = {}
+var preview_mode = false
+var ray_used = false
 var torpedoes = 10
 var crew = 430
 var reserves = 2.0
@@ -50,13 +56,15 @@ func new_game(seed_value: int = 1994, difficulty: int = 3) -> void:
 	quadrant = Vector2i(3, 3)
 	sector = Vector2i(4, 3)
 	energy = MAIN_CAP
-	shields = 1500
-	laser_energy = LASER_CAP
+	shields = SHIELD_CAP
 	shields_up = false
 	heat = 0
-	warp = 5
-	stardate = 3200
+	warp = START_WARP
+	stardate = START_STARDATE
 	elapsed = 0
+	mission_deadline = 42.0 - level * 2.0
+	relief = {"state": "pending", "quadrant": -1, "deadline": 0.0}
+	ray_used = false
 	torpedoes = 10
 	crew = 430
 	reserves = 2
@@ -76,23 +84,26 @@ func new_game(seed_value: int = 1994, difficulty: int = 3) -> void:
 		if rng.randf() < 0.2:
 			q.append(make_object("planet", vacant(q)))
 		galaxy.append(q)
-	for i in (12 + level * 8):
+	# Finite fleet: Captain has 24 ships including the two opening contacts.
+	var placed = 0
+	while placed < 10 + level * 4:
 		var index = rng.randi_range(0, 63)
-		if enemies_in(galaxy[index]).size() < 6:
-			var types = ["cruiser", "cruiser", "cruiser", "scout", "supply", "command"]
-			galaxy[index].append(make_object(types[rng.randi_range(0, 5)], vacant(galaxy[index])))
+		if index == 27 or enemies_in(galaxy[index]).size() >= 3: continue
+		var types = ["cruiser", "cruiser", "cruiser", "scout", "supply", "command"]
+		galaxy[index].append(make_object(types[rng.randi_range(0, 5)], vacant(galaxy[index])))
+		placed += 1
 	for i in [0, 11, 27, 45, 62]:
 		galaxy[i].append(make_object("base", vacant(galaxy[i]), 1 if i in [0, 27, 62] else (2 if i == 11 else 3)))
 	# A reproducible first encounter, with an accessible friendly base.
 	galaxy[27] = [make_object("base", Vector2i(5, 2), 1), make_object("cruiser", Vector2i(2, 5)), make_object("scout", Vector2i(5, 6)), make_object("star", Vector2i(1, 1)), make_object("star", Vector2i(6, 4)), make_object("star", Vector2i(0, 6)), make_object("planet", Vector2i(6, 0))]
 	scan()
-	log_message("COMMAND", "Lexington RCB-92 ready. Secure all 64 quadrants.")
+	log_message("COMMAND", "Clear the invasion within %.0f days. REPORT lists fleet contacts and relief orders." % mission_deadline)
 	log_message("TACTICAL", "%d hostile vessels remain. Raise shields before engaging." % remaining())
 	changed.emit()
 
 func make_object(kind: String, pos: Vector2i, base_type: int = 0) -> Dictionary:
 	var hp = {"cruiser": 450, "command": 800, "scout": 240, "supply": 300}.get(kind, 0)
-	return {"kind": kind, "r": pos.x, "c": pos.y, "hp": hp, "max_hp": hp, "base_type": base_type, "crystals": kind == "planet", "population": 50 if kind == "planet" and rng.randf() < 0.3 else 0}
+	return {"kind": kind, "r": pos.x, "c": pos.y, "hp": hp, "max_hp": hp, "rallied": false, "turns": 0, "base_type": base_type, "crystals": kind == "planet", "population": 50 if kind == "planet" and rng.randf() < 0.3 else 0}
 
 func vacant(objects: Array) -> Vector2i:
 	for i in 1000:
@@ -118,6 +129,170 @@ func remaining() -> int:
 	var count = 0
 	for q in galaxy: count += enemies_in(q).size()
 	return count
+
+func fleet_contacts() -> Array[int]:
+	var contacts: Array[int] = []
+	for index in 64:
+		if not enemies_in(galaxy[index]).is_empty(): contacts.append(index)
+	return contacts
+
+func chart_value(index: int) -> String:
+	if systems.computer < 50: return "---"
+	var remembered: String = chart.get(str(index), "···")
+	var station = 0
+	for obj in galaxy[index]:
+		if obj.kind == "base": station = obj.base_type
+	return "%d%d" % [enemies_in(galaxy[index]).size(), station] + remembered.substr(2)
+
+func relief_status() -> String:
+	match relief.get("state", "pending"):
+		"active": return "RELIEF Q %d,%d · %.1fd left" % [int(relief.quadrant) / 8 + 1, int(relief.quadrant) % 8 + 1, maxf(0, float(relief.deadline) - elapsed)]
+		"saved": return "Relief complete · +500 score"
+		"lost": return "Relief base lost"
+		"cancelled": return "Relief not required"
+	return "Fleet relief channel on standby"
+
+func mission_report() -> String:
+	var contacts: Array[String] = []
+	for index in fleet_contacts(): contacts.append("%d,%d (%d)" % [index / 8 + 1, index % 8 + 1, enemies_in(galaxy[index]).size()])
+	return "%.2f days left. %s. Fleet contacts: %s" % [maxf(0, mission_deadline - elapsed), relief_status(), "; ".join(contacts)]
+
+func enemy_role(kind: String) -> String:
+	return {"cruiser": "closes range", "scout": "retreats; calls one ally", "supply": "repairs nearby allies", "command": "boosts nearby fire"}.get(kind, "")
+
+func enemy_step(enemy: Dictionary, retreat: bool) -> void:
+	var origin = position_of(enemy)
+	var best = Vector2(origin).distance_squared_to(Vector2(sector))
+	var target = origin
+	for offset in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var cell: Vector2i = origin + offset
+		if cell.x < 0 or cell.y < 0 or cell.x > 7 or cell.y > 7 or cell == sector: continue
+		if not object_at(current(), cell).is_empty(): continue
+		var distance = Vector2(cell).distance_squared_to(Vector2(sector))
+		if (retreat and distance > best) or (not retreat and distance < best):
+			target = cell
+			best = distance
+	if target != origin:
+		enemy.r = target.x
+		enemy.c = target.y
+		effect.emit("move", origin, target)
+
+func rally_ally(scout: Dictionary) -> void:
+	scout.rallied = true
+	if enemies_in(current()).size() >= 4: return
+	for index in fleet_contacts():
+		var q = Vector2i(index / 8, index % 8)
+		if q == quadrant or index == 27 or Vector2(q).distance_to(Vector2(quadrant)) > 1.5: continue
+		var ally: Dictionary = enemies_in(galaxy[index])[0]
+		var cell = vacant(current())
+		if cell == sector: continue
+		galaxy[index].erase(ally)
+		ally.r = cell.x
+		ally.c = cell.y
+		current().append(ally)
+		log_message("TACTICAL", "Scout called a %s from Q %d,%d. Fleet total unchanged." % [ally.kind, q.x + 1, q.y + 1])
+		return
+
+func enemy_turn() -> void:
+	if docked == 1: return
+	# Reinforcements join at the end of this response and act next order.
+	var enemies = enemies_in(current())
+	for enemy in enemies:
+		enemy.turns = int(enemy.get("turns", 0)) + 1
+		if enemy.kind == "scout":
+			enemy_step(enemy, true)
+			if not enemy.get("rallied", false): rally_ally(enemy)
+		elif enemy.kind in ["cruiser", "command"] and enemy.turns % 2 == 0:
+			enemy_step(enemy, false)
+		if enemy.kind == "supply":
+			for ally in enemies:
+				if ally == enemy or Vector2(position_of(ally)).distance_to(Vector2(position_of(enemy))) > 3: continue
+				if ally.hp < ally.max_hp:
+					ally.hp = minf(ally.max_hp, ally.hp + 35)
+					log_message("TACTICAL", "Supply ship restored %s shields." % ally.kind)
+		var coordinated = false
+		for leader in enemies:
+			if leader.kind == "command" and leader != enemy and Vector2(position_of(leader)).distance_to(Vector2(position_of(enemy))) <= 3: coordinated = true
+		var distance = Vector2(sector).distance_to(Vector2(position_of(enemy)))
+		var strength = {"cruiser": 1.0, "command": 1.3, "scout": 0.55, "supply": 0.4}[enemy.kind]
+		var damage = rng.randf_range(45, 70) * (0.6 + level * 0.2) * strength * (1.25 if coordinated else 1.0) / (1 + distance * 0.12)
+		effect.emit("enemy_laser", position_of(enemy), sector)
+		take_hit(damage)
+		if energy <= 0 or crew <= 0: break
+
+func update_relief() -> void:
+	if ended: return
+	if relief.state == "pending" and elapsed >= 6 and remaining() > 0:
+		var target = -1
+		var nearest = INF
+		for index in 64:
+			if index == 27: continue # Keep the opening refit base dependable.
+			for obj in galaxy[index]:
+				if obj.kind != "base" or obj.base_type != 1: continue
+				var distance = Vector2(quadrant).distance_to(Vector2(index / 8, index % 8))
+				if distance < nearest:
+					nearest = distance
+					target = index
+		if target < 0:
+			relief.state = "lost"
+			return
+		# Reassign at most two existing ships; no new ships are generated.
+		var dispatched = 0
+		for index in fleet_contacts():
+			if index == target or index == quadrant.x * 8 + quadrant.y: continue
+			for enemy in enemies_in(galaxy[index]):
+				if dispatched >= 2 or enemies_in(galaxy[target]).size() >= 4: break
+				var cell = vacant(galaxy[target])
+				if target == quadrant.x * 8 + quadrant.y and cell == sector: continue
+				galaxy[index].erase(enemy)
+				enemy.r = cell.x
+				enemy.c = cell.y
+				galaxy[target].append(enemy)
+				dispatched += 1
+		if enemies_in(galaxy[target]).is_empty():
+			relief.state = "cancelled"
+			return
+		relief = {"state": "active", "quadrant": target, "deadline": elapsed + 6.0}
+		log_message("COMMS", "Base relief requested: Q %d,%d. Clear its hostiles within 6 days for +500 score." % [target / 8 + 1, target % 8 + 1])
+	if relief.state != "active": return
+	var index = int(relief.quadrant)
+	var base: Dictionary = {}
+	for obj in galaxy[index]:
+		if obj.kind == "base" and obj.base_type == 1: base = obj
+	if base.is_empty():
+		relief.state = "lost"
+		log_message("COMMS", "Relief base destroyed. Continue the fleet mission.")
+	elif elapsed >= float(relief.deadline):
+		galaxy[index].erase(base)
+		if quadrant == Vector2i(index / 8, index % 8): docked = 0
+		relief.state = "lost"
+		log_message("COMMS", "Relief deadline missed. Base lost; the invasion remains your primary objective.")
+	elif enemies_in(galaxy[index]).is_empty():
+		relief.state = "saved"
+		log_message("COMMS", "Relief complete. StarBase secured; +500 mission score.")
+
+func preview(raw: String) -> Dictionary:
+	if raw.strip_edges().is_empty(): return {"ok": true, "text": "Prepare an order to see its cost. Reports and typing are free."}
+	var copy = get_script().new()
+	for key in saved_fields():
+		var value = get(key)
+		copy.set(key, value.duplicate(true) if value is Array or value is Dictionary else value)
+	copy.rng.state = rng.state
+	copy.preview_mode = true
+	var ok: bool = copy.execute(raw)
+	if not ok: return {"ok": false, "text": copy.history.back().split("  /  ", true, 1)[1]}
+	var days: float = copy.elapsed - elapsed
+	var cost: float = energy - copy.energy
+	var ammo: int = torpedoes - copy.torpedoes
+	if ammo > 0: cost = 0 # Projectile collateral damage is a consequence, not an energy price.
+	var note = "No time passes."
+	if days > 0: note = "Surviving hostiles respond." if copy.docked != 1 else "StarBase protection."
+	if raw.strip_edges().to_upper().begins_with("RAY"):
+		return {"ok": true, "days": 0.1, "energy": 0, "torpedoes": 0, "text": "0.10d · 50% chance: lose 75% main, lasers disabled. Leaves docking protection." + (" Deadline expires!" if elapsed + 0.1 >= mission_deadline else "")}
+	if raw.strip_edges().to_upper().begins_with("SELF"): note = "Destroys your ship and ends the mission."
+	if days + elapsed >= mission_deadline: note = "Reaches mission deadline: mission will fail."
+	elif days > reserves and systems.life_support < 100: note = "Life support damaged: %.1fd reserves. Consider FIX life_support first." % reserves
+	return {"ok": true, "days": days, "energy": cost, "torpedoes": ammo, "text": "%.0f main %s · %.2fd · %d torpedoes · %s" % [absf(cost), "used" if cost >= 0 else "restored", days, ammo, note]}
 
 func visible_objects() -> Array:
 	if systems.short_scan < 50: return []
@@ -162,7 +337,7 @@ func execute(raw: String) -> bool:
 	var args = matched.get_string(2).strip_edges().replace(",", " ")
 	var aliases = {"C": "CHART", "M": "MOVE", "W": "WARP", "D": "DOCK", "E": "ENERGY", "F": "FIX", "H": "HAIL", "I": "INFO", "L": "LASERS", "O": "ORBIT", "T": "TORPEDO", "TORPS": "TORPEDO", "U": "USE", "R": "REPAIR", "S": "SELF", "Q": "QUIT"}
 	cmd = aliases.get(cmd, cmd)
-	if ended and cmd not in ["INFO", "REPAIR", "MSGS", "HELP", "SND", "A", "CHART", "SAVE", "QUIT"]:
+	if ended and cmd not in ["INFO", "REPAIR", "MSGS", "HELP", "SND", "A", "CHART", "REPORT", "SAVE", "QUIT"]:
 		reject("Mission ended. Start a new mission from the bridge menu.")
 		changed.emit()
 		return false
@@ -176,7 +351,7 @@ func execute(raw: String) -> bool:
 				log_message("HELM", "Warp factor %.1f set." % warp)
 		"SHUP":
 			if not shields_up:
-				if energy < 50: result = reject("Insufficient energy to raise shields.")
+				if energy <= 50: result = reject("Insufficient energy to raise shields.")
 				else:
 					energy -= 50
 					shields_up = true
@@ -184,21 +359,22 @@ func execute(raw: String) -> bool:
 		"SHDN":
 			shields_up = false
 			log_message("ENGINEERING", "Shields lowered.")
-		"MAX": transfer("SHIELDS", minf(SHIELD_CAP - shields, energy))
+		"MAX": result = transfer("SHIELDS", minf(SHIELD_CAP - shields, energy))
 		"ENERGY":
 			var bits = args.split(" ", false)
 			if bits.size() == 2 and bits[1].is_valid_float(): result = transfer(bits[0], float(bits[1]))
-			else: log_message("ENGINEERING", "Main %.0f / Shields %.0f / Lasers %.0f. ENERGY SHIELDS|LASERS amount (negative returns power)." % [energy, shields, laser_energy])
+			else: log_message("ENGINEERING", "Main %.0f / Shields %.0f. Lasers use main power; ENERGY SHIELDS amount (negative returns power)." % [energy, shields])
 		"LASERS": result = fire_lasers(args)
 		"TORPEDO": result = fire_torpedoes(args)
 		"DOCK": result = dock()
 		"FIX": result = fix_systems(args)
 		"REPAIR":
 			for key in SYSTEMS: log_message("ENGINEERING", "%s %d%%" % [key.capitalize(), systems[key]])
+		"REPORT": log_message("COMMAND", mission_report())
 		"INFO":
-			if systems.computer < 100: result = reject("Computer damaged. Repair before requesting target analysis.")
+			if systems.computer < 50: result = reject("Computer below 50%. Repair before requesting target analysis.")
 			else:
-				for e in enemies_in(current()): log_message("TACTICAL", "%s at %d,%d / range %.1f / shields %d%%" % [e.kind.capitalize(), e.r + 1, e.c + 1, Vector2(sector).distance_to(Vector2(position_of(e))), 100.0 * e.hp / e.max_hp])
+				for e in enemies_in(current()): log_message("TACTICAL", "%s at %d,%d / shields %d%% / laser solution %d" % [e.kind.capitalize() + " (" + enemy_role(e.kind) + ")", e.r + 1, e.c + 1, 100.0 * e.hp / e.max_hp, laser_solution(e)])
 		"HAIL":
 			var best = 100.0
 			var where = Vector2i.ZERO
@@ -210,8 +386,7 @@ func execute(raw: String) -> bool:
 						if distance < best:
 							best = distance
 							where = q
-			log_message("COMMS", "Nearest StarBase: quadrant %d,%d." % [where.x + 1, where.y + 1])
-			if best > 1: advance(0.1)
+			log_message("COMMS", "Nearest StarBase: quadrant %d,%d." % [where.x + 1, where.y + 1] if best < 100 else "No StarBases remain. Seek a supply station or use FIX to regenerate.")
 		"ORBIT":
 			result = false
 			for o in current():
@@ -230,14 +405,9 @@ func execute(raw: String) -> bool:
 				energy = MAIN_CAP
 				log_message("ENGINEERING", "Energium converted. Main power restored.")
 		"RAY":
-			if rng.randf() < 0.5:
-				for e in enemies_in(current()): destroy(e)
-				log_message("TACTICAL", "Death ray discharged. Quadrant cleared.")
-			else:
-				energy *= 0.25
-				systems.lasers = 0
-				log_message("ENGINEERING", "Death ray failure! Main power lost; laser banks destroyed.")
-			advance(0.1)
+			if args != "CONFIRM":
+				result = reject("RAY CONFIRM: 50% failure loses 75% main power and disables lasers; 0.1 day, enemies respond.")
+			else: result = death_ray()
 		"SELF":
 			if args != "CONFIRM": result = reject("Enter SELF CONFIRM to destroy the ship.")
 			else:
@@ -253,20 +423,34 @@ func execute(raw: String) -> bool:
 			log_message("COMPUTER", "Sound enabled." if sound_enabled else "Sound muted.")
 		"HELP", "MSGS", "SAVE", "QUIT", "CHART": pass # Presentation handles these commands.
 		_: result = reject("Unknown command. Press F1 for the command reference.")
+	if not preview_mode: update_relief()
 	scan()
 	if not ended and remaining() == 0: finish(true, "All invasion vessels eliminated. Union territory secured.")
 	changed.emit()
 	return result
 
+func death_ray() -> bool:
+	if ray_used: return reject("Experimental ray already spent. One discharge per mission.")
+	if enemies_in(current()).is_empty(): return reject("No hostile targets for the experimental ray.")
+	ray_used = true
+	docked = 0
+	if rng.randf() < 0.5:
+		for e in enemies_in(current()): destroy(e)
+		log_message("TACTICAL", "Death ray discharged. Quadrant cleared.")
+	else:
+		energy *= 0.25
+		systems.lasers = 0
+		log_message("ENGINEERING", "Death ray failure! Main power lost; lasers disabled.")
+	advance(0.1)
+	return true
+
 func transfer(bank: String, amount: float) -> bool:
 	if not is_finite(amount): return reject("Invalid energy amount.")
-	var value = shields if bank == "SHIELDS" else laser_energy
-	var cap = SHIELD_CAP if bank == "SHIELDS" else LASER_CAP
-	if bank not in ["SHIELDS", "LASERS"] or amount > energy or value + amount < 0 or value + amount > cap or energy - amount > MAIN_CAP: return reject("Transfer exceeds available power or bank capacity.")
+	if bank != "SHIELDS": return reject("Use ENERGY SHIELDS amount. Lasers now draw directly from main power.")
+	if amount >= energy or shields + amount < 0 or shields + amount > SHIELD_CAP or energy - amount > MAIN_CAP: return reject("Transfer exceeds bank capacity or leaves no main power.")
 	energy -= amount
-	if bank == "SHIELDS": shields += amount
-	else: laser_energy += amount
-	log_message("ENGINEERING", "%+.0f units transferred to %s." % [amount, bank.to_lower()])
+	shields += amount
+	log_message("ENGINEERING", "%+.0f units transferred to shields." % amount)
 	return true
 
 func coords(args: String) -> Array[int]:
@@ -295,7 +479,7 @@ func move_ship(args: String) -> bool:
 		q = Vector2i(global_pos.x / 8, global_pos.y / 8)
 		target = Vector2i(global_pos.x % 8, global_pos.y % 8)
 	else:
-		if systems.computer < 100: return reject("Computer damaged. Use MOVE M delta-row delta-column.")
+		if systems.computer < 50: return reject("Computer below 50%. Use MOVE M delta-row delta-column or FIX computer.")
 		var values = coords(args)
 		if values.size() == 2: target = Vector2i(values[0], values[1])
 		elif values.size() == 4:
@@ -309,14 +493,13 @@ func move_ship(args: String) -> bool:
 	var origin = quadrant * 8 + sector
 	var destination = q * 8 + target
 	var distance = Vector2(origin).distance_to(Vector2(destination))
-	var steps = int(ceil(distance * 3))
-	# Trace intermediate cells; objects obstruct movement rather than teleporting through them.
-	for i in range(1, steps + 1):
-		var sample = Vector2i(Vector2(origin).lerp(Vector2(destination), float(i) / steps).round())
-		var qi = Vector2i(sample.x / 8, sample.y / 8)
-		var si = Vector2i(sample.x % 8, sample.y % 8)
-		if not object_at(galaxy[qi.x * 8 + qi.y], si).is_empty(): return reject("Course obstructed at quadrant %d,%d sector %d,%d." % [qi.x + 1, qi.y + 1, si.x + 1, si.y + 1])
-	var cost = distance * (warp * warp * 0.6 if interstellar else 8.0) * (2 if interstellar and shields_up else 1)
+	if not object_at(galaxy[q.x * 8 + q.y], target).is_empty(): return reject("Destination occupied. Choose an empty sector.")
+	var length = distance
+	if not interstellar:
+		var path = local_path(target)
+		if path.is_empty(): return reject("No clear impulse route to that sector.")
+		length = path.size()
+	var cost = distance / 8.0 * warp * 60 * (2 if shields_up else 1) if interstellar else length * 8
 	if energy <= cost: return reject("Insufficient main power for this course.")
 	energy -= cost
 	var old_sector = sector
@@ -327,13 +510,52 @@ func move_ship(args: String) -> bool:
 	effect.emit("warp" if interstellar else "move", old_sector, sector)
 	if interstellar and warp > 6 and rng.randf() < 0.25: systems.warp = maxf(10, systems.warp - rng.randf_range(10, 25))
 	log_message("HELM", "Arrived Q %d,%d · S %d,%d. Used %.0f energy." % [q.x + 1, q.y + 1, sector.x + 1, sector.y + 1, cost])
-	advance(maxf(0.05, distance / (warp * 8) if interstellar else distance * 0.08))
+	advance(maxf(0.05, distance / (warp * 8) if interstellar else length * 0.04))
 	return true
+
+func local_path(target: Vector2i) -> Array:
+	# Four-way breadth-first routing cannot cut through occupied corners.
+	if target == sector: return []
+	var queue: Array[Vector2i] = [sector]
+	var previous: Dictionary = {sector: sector}
+	var cursor = 0
+	while cursor < queue.size():
+		var cell = queue[cursor]
+		cursor += 1
+		for offset in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+			var next: Vector2i = cell + offset
+			if next.x < 0 or next.y < 0 or next.x >= 8 or next.y >= 8 or previous.has(next): continue
+			if not object_at(current(), next).is_empty(): continue
+			previous[next] = cell
+			if next == target:
+				var path: Array = [next]
+				while previous[path.front()] != sector: path.push_front(previous[path.front()])
+				return path
+			queue.append(next)
+	return []
+
+func arrival_sector(q: Vector2i) -> Vector2i:
+	# Fleet navigation reserves the nearest free arrival cell to the center.
+	var result = Vector2i.ZERO
+	var best = INF
+	for r in 8:
+		for c in 8:
+			var cell = Vector2i(r, c)
+			var distance = Vector2(cell).distance_squared_to(Vector2(3, 3))
+			if distance < best and object_at(galaxy[q.x * 8 + q.y], cell).is_empty():
+				result = cell
+				best = distance
+	return result
+
+func laser_solution(enemy: Dictionary) -> int:
+	var efficiency = systems.lasers / 100.0 * clampf(1.0 - heat / 140.0, 0.1, 1.0)
+	if efficiency <= 0: return 0
+	return ceili(enemy.hp * (1 + Vector2(sector).distance_to(Vector2(position_of(enemy))) * 0.16) / efficiency) + 1
 
 func fire_lasers(args: String) -> bool:
 	var enemies = enemies_in(current())
 	if enemies.is_empty(): return reject("No hostile targets in this quadrant.")
-	if systems.lasers <= 0: return reject("Laser banks inoperative.")
+	if systems.lasers <= 0: return reject("Lasers inoperative.")
 	var bits = args.split(" ", false)
 	var allocations: Array[float] = []
 	if bits.size() != enemies.size(): return reject("LASERS: enter energy for each of %d targets, in INFO order (0 skips)." % enemies.size())
@@ -342,8 +564,9 @@ func fire_lasers(args: String) -> bool:
 		if not bit.is_valid_float() or not is_finite(float(bit)) or float(bit) < 0: return reject("Enter non-negative laser allocations.")
 		allocations.append(float(bit))
 		total += float(bit)
-	if total <= 0 or total > laser_energy: return reject("Laser allocation exceeds bank energy or is zero.")
-	laser_energy -= total
+	if total <= 0 or total > LASER_SALVO_CAP or total >= energy: return reject("Lasers need main power remaining and at most 2000 energy per salvo.")
+	docked = 0
+	energy -= total
 	var efficiency = systems.lasers / 100.0 * clampf(1.0 - heat / 140.0, 0.1, 1.0)
 	for i in enemies.size():
 		if allocations[i] == 0: continue
@@ -364,6 +587,7 @@ func fire_torpedoes(args: String) -> bool:
 	if values.size() / 2 > torpedoes: return reject("Insufficient torpedoes.")
 	for i in range(0, values.size(), 2):
 		if Vector2i(values[i], values[i + 1]) == sector: return reject("Cannot target your own sector.")
+	docked = 0
 	for i in range(0, values.size(), 2):
 		torpedoes -= 1
 		var target = Vector2(values[i], values[i + 1])
@@ -418,12 +642,13 @@ func dock() -> bool:
 		if obj.kind == "base" and adjacent(position_of(obj)):
 			docked = obj.base_type
 			orbiting = false
+			advance(0.3)
+			if ended: return true
 			reserves = 2
 			if docked != 2: torpedoes = 10
 			if docked == 1:
 				energy = MAIN_CAP
 				shields = SHIELD_CAP
-				laser_energy = LASER_CAP
 				crew = 430
 			log_message("COMMS", "Docking complete. %s" % ("All supplies restored. StarBase shields protect us." if docked == 1 else "Station supplies transferred; full refit requires a StarBase."))
 			return true
@@ -469,27 +694,39 @@ func fix_systems(args: String) -> bool:
 	return true
 
 func advance(days: float) -> void:
-	elapsed += days
-	stardate += days
-	energy = minf(MAIN_CAP, energy + 400 * days * systems.converter / 100)
-	heat = maxf(0, heat - 35 * days)
-	if systems.life_support < 100: reserves -= days
-	else: reserves = minf(2, reserves + days)
-	var damaged: Array = []
-	for key in SYSTEMS:
-		if systems[key] < 100: damaged.append(key)
-	if repair_focus != "" and systems[repair_focus] >= 100: repair_focus = ""
-	for key in damaged:
-		if repair_focus != "" and key != repair_focus: continue
-		var rate = (5.0 if docked == 1 else 3.0) if repair_focus != "" else (2.5 if docked == 1 else 1.0) / maxf(1, damaged.size())
-		systems[key] = minf(100, systems[key] + 12 * days * rate)
-	if docked != 1:
-		for e in enemies_in(current()):
-			var distance = Vector2(sector).distance_to(Vector2(position_of(e)))
-			var damage = rng.randf_range(55, 100) * (0.6 + level * 0.2) * (1.5 if e.kind == "command" else 1.0) / (1 + distance * 0.12)
-			effect.emit("enemy_laser", position_of(e), sector)
-			take_hit(damage)
-	if energy <= 0 or crew <= 0 or reserves <= 0: finish(false, "Ship lost. Mission terminated.")
+	if ended: return
+	if preview_mode:
+		elapsed += days
+		return
+	# Integrate passive repairs in small steps even during a long warp. A system
+	# repaired en route must not consume life reserves for the entire journey.
+	while days > 0.000001 and not ended:
+		var step = minf(0.1, minf(days, maxf(0, mission_deadline - elapsed)))
+		elapsed += step
+		stardate += step
+		energy = minf(MAIN_CAP, energy + 400 * step * systems.converter / 100)
+		heat = maxf(0, heat - 60 * step)
+		if systems.life_support < 100: reserves -= step
+		else: reserves = minf(2, reserves + step)
+		var damaged: Array = []
+		for key in SYSTEMS:
+			if systems[key] < 100: damaged.append(key)
+		if repair_focus != "" and systems[repair_focus] >= 100: repair_focus = ""
+		for key in damaged:
+			if repair_focus != "" and key != repair_focus: continue
+			var rate = (5.0 if docked == 1 else 3.0) if repair_focus != "" else (2.5 if docked == 1 else 1.0) / maxf(1, damaged.size())
+			systems[key] = minf(100, systems[key] + 12 * step * rate)
+		update_relief()
+		if elapsed >= mission_deadline - 0.000001:
+			finish(false, "Mission deadline expired. The invasion has broken through.")
+		elif reserves <= 0:
+			finish(false, "Life-support reserves exhausted. Ship lost.")
+		elif energy <= 0 or crew <= 0:
+			finish(false, "Main power exhausted. Ship lost." if energy <= 0 else "Crew lost. Mission terminated.")
+		days -= step
+	if ended: return
+	enemy_turn()
+	if not ended and (energy <= 0 or crew <= 0 or reserves <= 0): finish(false, "Ship lost. Mission terminated.")
 
 func take_hit(amount: float) -> void:
 	var absorption = clampf(shields / SHIELD_CAP * systems.shields / 100, 0, 1) if shields_up else 0.0
@@ -502,6 +739,7 @@ func take_hit(amount: float) -> void:
 		systems[key] = maxf(0, systems[key] - penetration * 0.12)
 		crew = maxi(0, crew - int(penetration / 35))
 	log_message("DAMAGE", "Incoming %.0f / absorbed %.0f / penetration %.0f." % [amount, absorbed, penetration])
+	if energy <= 0 or crew <= 0: finish(false, "Lexington destroyed by incoming damage.")
 
 func finish(success: bool, reason: String) -> void:
 	ended = true
@@ -509,10 +747,10 @@ func finish(success: bool, reason: String) -> void:
 	log_message("COMMAND", reason)
 
 func score() -> int:
-	return maxi(0, int(kills * 100 + rescued * 2 - elapsed * 20 + (1000 if won else 0)))
+	return maxi(0, int(kills * 100 + rescued * 2 + (500 if relief.get("state") == "saved" else 0) - elapsed * 20 + (1000 if won else 0)))
 
 func save_game(path: String = "user://mission.save") -> Error:
-	var state: Dictionary = {"version": 1, "rng": str(rng.state)}
+	var state: Dictionary = {"version": RULESET_VERSION, "rng": str(rng.state)}
 	for key in saved_fields(): state[key] = get(key)
 	var file = FileAccess.open(path + ".tmp", FileAccess.WRITE)
 	if file == null: return FileAccess.get_open_error()
@@ -529,7 +767,16 @@ func load_game(path: String = "user://mission.save") -> Error:
 	if data_length != file.get_length() - 4 or data_length > 1048576: return ERR_FILE_CORRUPT
 	file.seek(0)
 	var state = file.get_var(false)
-	if not state is Dictionary or state.get("version") != 1: return ERR_FILE_CORRUPT
+	if not state is Dictionary or state.get("version") not in [1, RULESET_VERSION]: return ERR_FILE_CORRUPT
+	var migrated = state.version == 1
+	if migrated:
+		for key in ["energy", "laser_energy", "elapsed"]:
+			if typeof(state.get(key)) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(state[key])) or state[key] < 0: return ERR_FILE_CORRUPT
+		state.energy = minf(MAIN_CAP, state.energy + state.laser_energy)
+		state.erase("laser_energy")
+		state.mission_deadline = state.elapsed + 36.0
+		state.relief = {"state": "pending", "quadrant": -1, "deadline": 0.0}
+		state.ray_used = false
 	for key in saved_fields():
 		if not state.has(key): return ERR_FILE_CORRUPT
 		var expected = typeof(get(key))
@@ -538,6 +785,14 @@ func load_game(path: String = "user://mission.save") -> Error:
 		elif typeof(state[key]) != expected: return ERR_FILE_CORRUPT
 	if not state.get("rng") is String or not state.rng.is_valid_int(): return ERR_FILE_CORRUPT
 	if state.level < 1 or state.level > 5 or state.torpedoes < 0 or state.torpedoes > 10 or state.docked < 0 or state.docked > 3: return ERR_FILE_CORRUPT
+	if state.energy > MAIN_CAP or state.shields < 0 or state.shields > SHIELD_CAP or state.elapsed < 0 or state.mission_deadline <= 0: return ERR_FILE_CORRUPT
+	if state.warp < 1 or state.warp > 8 or state.heat < 0 or state.heat > 120: return ERR_FILE_CORRUPT
+	for key in ["state", "quadrant", "deadline"]:
+		if not state.relief.has(key): return ERR_FILE_CORRUPT
+	if state.relief.state not in ["pending", "active", "saved", "lost", "cancelled"]: return ERR_FILE_CORRUPT
+	if not state.relief.quadrant is int or state.relief.quadrant < -1 or state.relief.quadrant > 63: return ERR_FILE_CORRUPT
+	if state.relief.state in ["active", "saved"] and state.relief.quadrant < 0: return ERR_FILE_CORRUPT
+	if typeof(state.relief.deadline) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(state.relief.deadline)) or state.relief.deadline < 0: return ERR_FILE_CORRUPT
 	if state.repair_focus != "" and state.repair_focus not in SYSTEMS: return ERR_FILE_CORRUPT
 	for lines in [state.messages, state.history]:
 		if lines.size() > 160: return ERR_FILE_CORRUPT
@@ -551,6 +806,10 @@ func load_game(path: String = "user://mission.save") -> Error:
 		var occupied: Array = []
 		for obj in q:
 			if not obj is Dictionary: return ERR_FILE_CORRUPT
+			if migrated:
+				obj.rallied = false
+				obj.turns = 0
+			if not obj.get("rallied") is bool or not obj.get("turns") is int or obj.turns < 0: return ERR_FILE_CORRUPT
 			for key in ["kind", "r", "c", "hp", "max_hp", "base_type", "crystals", "population"]:
 				if not obj.has(key): return ERR_FILE_CORRUPT
 			if obj.kind not in ["star", "planet", "base", "cruiser", "command", "scout", "supply"]: return ERR_FILE_CORRUPT
@@ -570,8 +829,9 @@ func load_game(path: String = "user://mission.save") -> Error:
 		if not state.chart[key] is String or state.chart[key].length() != 3 or not state.chart[key].is_valid_int(): return ERR_FILE_CORRUPT
 	for key in saved_fields(): set(key, state[key])
 	rng.state = int(state.rng)
+	if migrated: log_message("COMPUTER", "Legacy save migrated: laser reserve merged into main power (5000 cap); 36 days granted under the new mission rules.")
 	changed.emit()
 	return OK
 
 func saved_fields() -> Array:
-	return ["galaxy", "chart", "quadrant", "sector", "energy", "shields", "laser_energy", "shields_up", "heat", "warp", "stardate", "elapsed", "torpedoes", "crew", "reserves", "crystals", "rescued", "kills", "level", "mission_seed", "docked", "orbiting", "ended", "won", "sound_enabled", "repair_focus", "systems", "messages", "history"]
+	return ["galaxy", "chart", "quadrant", "sector", "energy", "shields", "shields_up", "heat", "warp", "stardate", "elapsed", "mission_deadline", "relief", "ray_used", "torpedoes", "crew", "reserves", "crystals", "rescued", "kills", "level", "mission_seed", "docked", "orbiting", "ended", "won", "sound_enabled", "repair_focus", "systems", "messages", "history"]
