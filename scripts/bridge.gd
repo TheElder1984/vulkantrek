@@ -18,7 +18,7 @@ var energy_label: Label
 var shield_label: Label
 var torp_label: Label
 var heat_label: Label
-var laser_label: Label
+var preview_label: Label
 var crew_label: Label
 var bars: Dictionary = {}
 var system_labels: Dictionary = {}
@@ -47,6 +47,10 @@ func _ready() -> void:
 		sim.execute("MAX")
 		sim.execute("SHUP")
 		sim.execute("LASERS 900 650")
+		if sim.kills != 2 or sim.remaining() != 22 or sim.energy != 3440 or sim.ended:
+			printerr("BRIDGE_SMOKE_FAILED: opening combat or shared power is incorrect")
+			get_tree().quit(1)
+			return
 		await get_tree().create_timer(1.0).timeout
 		print("BRIDGE_SMOKE_OK")
 		get_tree().quit()
@@ -229,9 +233,12 @@ func build_ui() -> void:
 	command.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	command.placeholder_text = "Enter command · e.g. MAX, SHUP, M35"
 	command.text_submitted.connect(submit)
+	command.text_changed.connect(func(_text): refresh_preview())
 	input_row.add_child(command)
 	button("EXECUTE ↵", func(): submit(command.text), input_row)
-	console.add_child(label("Time advances with orders. Take your time, Captain.", 11, MUTED))
+	preview_label = label("", 11, MUTED)
+	preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	console.add_child(preview_label)
 	var right = VBoxContainer.new()
 	right.custom_minimum_size.x = 280
 	right.add_theme_constant_override("separation", 16)
@@ -241,14 +248,14 @@ func build_ui() -> void:
 	galaxy.sim = sim
 	galaxy.galaxy_mode = true
 	galaxy.custom_minimum_size = Vector2(248, 245)
-	galaxy.cell_selected.connect(func(cell): fill_command("MOVE %d,%d,4,4" % [cell.x + 1, cell.y + 1]))
+	galaxy.cell_selected.connect(plot_quadrant)
 	galaxy_panel.add_child(galaxy)
 	galaxy_panel.add_child(label("HOSTILES  /  BASE TYPE  /  STARS", 10, MUTED))
-	galaxy_panel.add_child(label("··· Uncharted    □ Current quadrant", 11, MUTED))
+	galaxy_panel.add_child(label("Fleet / bases live · stars scanned", 11, MUTED))
 	var engineering = panel(right, "07  /  POWER & RESERVES")
 	energy_label = gauge(engineering, "MAIN ENERGY", "energy", Simulation.MAIN_CAP, CYAN)
 	shield_label = gauge(engineering, "SHIELD ENERGY", "shields", Simulation.SHIELD_CAP, Color("7ba8f2"))
-	laser_label = gauge(engineering, "LASER BANKS", "lasers", Simulation.LASER_CAP, Color("b697e5"))
+	engineering.add_child(label("LASERS USE MAIN · 2000 PER SALVO", 11, Color("b697e5")))
 	heat_label = gauge(engineering, "LASER TEMPERATURE", "heat", 120, GOLD)
 	torp_label = label("", 14, GOLD)
 	engineering.add_child(torp_label)
@@ -256,19 +263,19 @@ func build_ui() -> void:
 	engineering.add_child(crew_label)
 	var tools_row = HBoxContainer.new()
 	engineering.add_child(tools_row)
-	button("F5  MAX", func(): submit("MAX"), tools_row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button("F5  MAX", func(): prepare_command("MAX"), tools_row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button("F6  FIX", func(): prepare_command("FIX"), tools_row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var orders = panel(right, "QUICK ORDERS")
 	var row = HBoxContainer.new()
 	orders.add_child(row)
-	button("HAIL", func(): submit("HAIL"), row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button("REPORT", func(): submit("REPORT"); show_log(), row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button("SAVE", save_mission, row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button("LOG", show_log, row).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var footer = HBoxContainer.new()
 	root.add_child(footer)
 	footer.add_child(label("RCB-92   /   DEEP SPACE OPERATIONS", 10, MUTED))
 	expanding_spacer(footer)
-	footer.add_child(label("COMMAND STRATEGY    ·    EGATREK 3.1 RECONSTRUCTION", 10, MUTED))
+	footer.add_child(label("COMMAND STRATEGY    ·    INSPIRED BY EGATREK", 10, MUTED))
 	dialog = AcceptDialog.new()
 	dialog.min_size = Vector2i(720, 580)
 	add_child(dialog)
@@ -297,6 +304,7 @@ func build_ui() -> void:
 		sim.new_game(int(seed_input.text), difficulty.selected + 1)
 		pending = ""
 		command.clear()
+		refresh_preview()
 		command.grab_focus())
 	soundtrack = AudioStreamPlayer.new()
 	soundtrack.volume_db = -24
@@ -323,21 +331,19 @@ func gauge(parent: Node, title: String, key: String, maximum: float, tint: Color
 
 func refresh() -> void:
 	if not is_instance_valid(command): return
-	mission_label.text = "%02d hostile vessels remaining\nStardate %.2f\nMission time  %.2f days" % [sim.remaining(), sim.stardate, sim.elapsed]
+	mission_label.text = "%02d hostile vessels remaining\n%.2f days remaining\n%s" % [sim.remaining(), maxf(0, sim.mission_deadline - sim.elapsed), sim.relief_status()]
 	location_label.text = "QUADRANT %02d.%02d" % [sim.quadrant.x + 1, sim.quadrant.y + 1]
 	var condition = "DOCKED" if sim.docked > 0 else ("RED" if not sim.enemies_in(sim.current()).is_empty() else "GREEN")
-	if sim.ended: condition = "MISSION COMPLETE" if sim.won else "SHIP LOST"
+	if sim.ended: condition = "MISSION COMPLETE" if sim.won else "MISSION FAILED"
 	status.text = "●  " + condition
-	status.add_theme_color_override("font_color", Color("f18d93") if condition in ["RED", "SHIP LOST"] else CYAN)
+	status.add_theme_color_override("font_color", Color("f18d93") if condition in ["RED", "MISSION FAILED"] else CYAN)
 	energy_label.text = "%04d / 5000" % sim.energy
 	shield_label.text = "%04d  ·  %s" % [sim.shields, "UP" if sim.shields_up else "DOWN"]
-	laser_label.text = "%04d / 2000" % sim.laser_energy
 	heat_label.text = "%d%%" % (sim.heat / 120 * 100)
 	torp_label.text = "%02d  ENTORPS    /    WARP %.1f" % [sim.torpedoes, sim.warp]
 	crew_label.text = "%d crew  ·  %.1fd life reserves\n%d energium  ·  %d rescued" % [sim.crew, sim.reserves, sim.crystals, sim.rescued]
 	bars.energy.value = sim.energy
 	bars.shields.value = sim.shields
-	bars.lasers.value = sim.laser_energy
 	bars.heat.value = sim.heat
 	for key in system_labels:
 		system_labels[key].text = "%d%%" % sim.systems[key]
@@ -351,6 +357,19 @@ func refresh() -> void:
 	tactical.queue_redraw()
 	galaxy.queue_redraw()
 	space.refresh()
+	refresh_preview()
+
+func refresh_preview() -> void:
+	if not is_instance_valid(preview_label) or sim.galaxy.is_empty(): return
+	var order = command.text if pending.is_empty() else pending + " " + command.text
+	var quote = sim.preview(order)
+	preview_label.text = quote.text
+	preview_label.tooltip_text = quote.text
+	preview_label.add_theme_color_override("font_color", MUTED if quote.ok else GOLD)
+
+func plot_quadrant(cell: Vector2i) -> void:
+	var arrival = sim.arrival_sector(cell)
+	fill_command("MOVE %d,%d,%d,%d" % [cell.x + 1, cell.y + 1, arrival.x + 1, arrival.y + 1])
 
 func escape_bbcode(value: String) -> String:
 	return value.replace("[", "[lb]")
@@ -359,14 +378,15 @@ func fill_command(text: String) -> void:
 	pending = ""
 	command.text = text
 	command.caret_column = text.length()
+	refresh_preview()
 	command.grab_focus()
 
 func prepare_command(cmd: String) -> void:
 	if cmd in ["SHUP", "SHDN", "DOCK", "MAX", "REPAIR", "HAIL"]:
-		submit(cmd)
+		fill_command(cmd)
 		return
 	pending = cmd
-	var instructions = {"MOVE": "Destination row,column or q-row,q-column,row,column", "LASERS": "Energy for each target in INFO order, separated by spaces", "TORPEDO": "Target row,column · up to three pairs", "FIX": "System name or all, then stardays (e.g. all 0.5)", "ENERGY": "SHIELDS or LASERS, then signed energy amount", "WARP": "Warp factor 1–8"}
+	var instructions = {"MOVE": "Destination row,column or q-row,q-column,row,column", "LASERS": "Energy for each target in INFO order, separated by spaces", "TORPEDO": "Target row,column · up to three pairs", "FIX": "System name or all, then stardays (e.g. all 0.5)", "ENERGY": "SHIELDS, then signed energy amount; lasers use main power", "WARP": "Warp factor 1–8"}
 	command.clear()
 	command.placeholder_text = instructions.get(cmd, "Parameters")
 	sim.log_message("COMPUTER", cmd + " / " + instructions.get(cmd, "Enter parameters."))
@@ -395,6 +415,7 @@ func submit(text: String) -> void:
 		"FIX", "F": prepare_command("FIX")
 		"WARP", "W": prepare_command("WARP")
 		_: sim.execute(full)
+	refresh_preview()
 	command.grab_focus()
 
 func show_text(title: String, text: String) -> void:
@@ -413,7 +434,34 @@ func show_text(title: String, text: String) -> void:
 	dialog.popup_centered()
 
 func show_help() -> void:
-	show_text("Captain’s reference", "[font_size=25][color=#79d9e9]YOUR BRIDGE. YOUR COMMAND.[/color][/font_size]\n\nEliminate the invasion fleet. Your orders advance time; the graphics do not. All coordinates are row first, from 1 to 8.\n\n[color=#e9bd87]FIRST ENCOUNTER[/color]\nMAX → SHUP → INFO → LASERS 900 650\nReplenish laser energy with ENERGY LASERS 1000. Plot a clear course adjacent to the green station and DOCK to resupply.\n\n[color=#e9bd87]NAVIGATION[/color]\nF4 / MOVE 3,5 (or M35): local impulse movement.\nMOVE 6,2,3,5: warp to quadrant 6,2 sector 3,5.\nMOVE M 1.0 -2.2: manual relative navigation.\nF9 / WARP 5.2: set speed; above warp 6 risks damage.\n↑ SHUP / ↓ SHDN: raise or lower shields.\n\n[color=#e9bd87]TACTICAL[/color]\nINFO: target list, in firing order.\nF2 / LASERS: prompts for energy allocated to each target; 0 skips.\nF3 / TORPEDO 3,6 6,7: fire at up to three sector pairs.\nTorpedoes follow a ray and can strike intervening objects.\nRAY: experimental weapon with unpredictable failure.\nSELF CONFIRM: self-destruct.\n\n[color=#e9bd87]ENGINEERING[/color]\nF5 / MAX: fill shield bank from main energy.\nF7 / ENERGY SHIELDS 500 or ENERGY LASERS -200.\nF6 / FIX all 0.5: wait and repair; enemies continue firing.\nFIX computer 1: focus repairs on one system.\nF8 / REPAIR: list system condition (MSGS shows full report).\nF10 / DOCK: resupply from an adjacent station.\nHAIL: locate nearest StarBase.\n\n[color=#e9bd87]SCIENCE & OPERATIONS[/color]\nORBIT: orbit an adjacent planet. SHDN before LAND.\nLAND / LAND SHUTTLE: collect energium and rescue colonists.\nUSE: consume energium in a low-energy emergency.\nA / A1: acknowledge all messages or one message.\nMSGS: message history. SAVE: save mission. SND: toggle effects.\nEscape: cancel parameter entry. Ctrl+↑/↓: command history.\n\n[color=#7792a6]Reconstruction build: combat balance and rare events are not yet verified against the original executable. See docs/PARITY.md.[/color]")
+	show_text("Captain’s reference", """[font_size=25][color=#79d9e9]YOUR BRIDGE. YOUR COMMAND.[/color][/font_size]
+
+Clear the finite invasion fleet before the mission deadline. Captain starts with 24 hostiles and 36 days. Typing, reports and menus never advance time. All coordinates are row, column (1–8).
+
+[color=#e9bd87]FIRST ENCOUNTER[/color]
+SHUP → LASERS 900 650 → M53 → DOCK → WARP 4
+The opening base remains available. Read the cost preview before Enter. Buttons and function keys prepare orders; Enter executes them.
+
+[color=#e9bd87]POWER AND COMBAT[/color]
+Lasers and movement draw from MAIN ENERGY. LASERS allocates up to 2000 total per salvo, in INFO target order; 0 skips. Heat reduces damage; FIX all 0.5 cools and regenerates but gives enemies five responses.
+MAX fills shields from main power. ENERGY SHIELDS -200 returns power. SHUP costs 50; SHDN is free. Weapons automatically leave docking protection. Torpedoes use inventory, not main energy; raised shields can scatter them. Avoid firing through friendly stations, planets or stars.
+Cruisers close range; scouts retreat and call one existing ally; supply ships repair nearby allies; commanders boost nearby fire. INFO explains each contact and gives the current laser energy needed to destroy it.
+
+[color=#e9bd87]NAVIGATION AND INTELLIGENCE[/color]
+F4 / MOVE 3,5 (M35): automatic impulse route around obstacles.
+Click a galaxy quadrant to reserve an empty arrival sector. Warp skips intervening obstacles. WARP 4 is a useful cruising speed; above 6 risks engine damage. Raised shields double warp energy cost. MOVE M 0.0 0.1 is manual displacement when the computer is below 50%.
+REPORT lists every remaining hostile quadrant and relief orders. The chart's first digit is live fleet intelligence; station types are live and stars are remembered scans. HAIL locates the nearest full-service StarBase at no time cost.
+
+[color=#e9bd87]RESUPPLY AND MISSION PRESSURE[/color]
+DOCK adjacent to a station takes 0.3 days. StarBases refill power, shields, crew and torpedoes and protect docked repairs. Supply stations refill torpedoes and life reserves; research stations only life reserves. FIX [system|all] days repairs and regenerates; enemies respond every 0.1 day outside StarBase protection.
+After six mission days a base may request relief. Clear the marked quadrant before its six-day deadline for +500 score. Missing relief loses that base, but you can still win the fleet mission. The mission deadline always takes priority.
+
+[color=#e9bd87]OTHER ORDERS[/color]
+ORBIT an adjacent planet; SHDN then LAND (or LAND SHUTTLE) collects energium and rescues colonists. USE converts a crystal when main power is below 20% and shields below 50%.
+RAY CONFIRM is usable once per mission and has a 50% chance of losing 75% main power and disabling lasers. SELF CONFIRM destroys the ship. Both are emergencies, not routine weapons.
+SAVE preserves the mission. RESTORE resumes it. REPAIR lists systems; MSGS opens the full log. Escape cancels entry; Ctrl+↑/↓ browses command history. F2 lasers, F3 torpedoes, F5 MAX, F6 FIX, F7 ENERGY, F8 REPAIR, F9 WARP, F10 DOCK.
+
+[color=#7792a6]An original ruleset inspired by EGATrek. Cost previews exclude regeneration and enemy damage; no simulation time passes while you decide.[/color]""")
 
 func show_log() -> void:
 	show_text("Communications archive", escape_bbcode("\n\n".join(sim.history)))
@@ -423,9 +471,9 @@ func show_chart() -> void:
 	for r in 8:
 		chart_text += " %d    " % (r + 1)
 		for c in 8:
-			chart_text += str(sim.chart.get(str(r * 8 + c), "...")) + "   " if sim.systems.computer >= 50 else "---   "
+			chart_text += sim.chart_value(r * 8 + c) + "   "
 		chart_text += "\n\n"
-	chart_text += "[/code]\nClick the bridge chart to prepare a course. Enter reviews and executes it."
+	chart_text += "[/code]\nClick the bridge chart to prepare a course. Review the cost below the console, then Enter executes it."
 	show_text("Galaxy chart", chart_text)
 
 func show_new_mission() -> void:
@@ -438,6 +486,9 @@ func save_mission() -> void:
 
 func restore_mission() -> void:
 	var result = sim.load_game()
+	if result == OK:
+		pending = ""
+		command.clear()
 	sim.log_message("COMPUTER", "Mission restored." if result == OK else "Restore failed: " + error_string(result))
 	refresh()
 
@@ -455,11 +506,12 @@ func _input(event: InputEvent) -> void:
 		pending = ""
 		command.clear()
 		command.placeholder_text = "Enter command · e.g. MAX, SHUP, M35"
+		refresh_preview()
 	elif event.keycode in [KEY_UP, KEY_DOWN]:
 		if event.ctrl_pressed and not submitted_history.is_empty():
 			history_index = clampi(history_index + (-1 if event.keycode == KEY_UP else 1), 0, submitted_history.size())
 			fill_command(submitted_history[history_index] if history_index < submitted_history.size() else "")
-		else: sim.execute("SHUP" if event.keycode == KEY_UP else "SHDN")
+		else: fill_command("SHUP" if event.keycode == KEY_UP else "SHDN")
 		get_viewport().set_input_as_handled()
 
 func play_sound(kind: String, _origin: Vector2i, _target: Vector2i) -> void:

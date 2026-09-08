@@ -1,0 +1,110 @@
+{
+  "source_url": "https://www.dosgamesarchive.com/file/egatrek/egatrk31",
+  "archive_sha256": "c22acfe40c2450d20ab8bd7ab2133349601165ae9e6db5156e386d88f8eb2fa4",
+  "executable_sha256": "01d90bceef2e26c4e691ad5429079e14dacadae536fa9e677efafa350bccb59e",
+  "emulator": "DOSBox 0.74-3, machine=ega, cycles=fixed 10000",
+  "method": "Title Enter; n Enter; n Enter; parity Enter; rank Enter; empty password Enter; ENERGY Enter. Screenshots manually transcribed; coordinates are one-based.",
+  "limitations": "Independent random starts, not matched RNG fixtures. Rank 4 was repeated to obtain an undamaged start. Counts do not establish distributions. Torpedo inventory and shield raised state not transcribed.",
+  "samples": [
+    {
+      "rank": 1,
+      "stardate": 3500.0,
+      "warp": 1.0,
+      "main_energy": 5000.0,
+      "impulse_energy": 500.0,
+      "shields": 2500,
+      "undamaged_start": true,
+      "hostiles": 25,
+      "quadrant": [
+        6,
+        4
+      ],
+      "sector": [
+        3,
+        3
+      ],
+      "screenshot": "egatrek_009.png",
+      "screenshot_sha256": "cd3fec7da250b6852f8bbd43c14e92360ccb1f6cb8e8de760a1f62a1e13a20fb"
+    },
+    {
+      "rank": 2,
+      "stardate": 3500.0,
+      "warp": 1.0,
+      "main_energy": 5000.0,
+      "impulse_energy": 500.0,
+      "shields": 2500,
+      "undamaged_start": true,
+      "hostiles": 26,
+      "quadrant": [
+        5,
+        6
+      ],
+      "sector": [
+        1,
+        7
+      ],
+      "screenshot": "egatrek_011.png",
+      "screenshot_sha256": "4692ef6f3ff2fc7ce02e3d1663bc9109afa75dcc1d7ff17282c48c59ebcb1027"
+    },
+    {
+      "rank": 3,
+      "stardate": 3500.0,
+      "warp": 1.0,
+      "main_energy": 5000.0,
+      "impulse_energy": 500.0,
+      "shields": 2500,
+      "undamaged_start": true,
+      "hostiles": 42,
+      "quadrant": [
+        7,
+        5
+      ],
+      "sector": [
+        2,
+        1
+      ],
+      "screenshot": "egatrek_014.png",
+      "screenshot_sha256": "f0eedc9403b3149e0d5508e05c3a4817f4567cfaa8c42da6f230245348addaab"
+    },
+    {
+      "rank": 4,
+      "stardate": 3500.0,
+      "warp": 1.0,
+      "main_energy": 5000.0,
+      "impulse_energy": 500.0,
+      "shields": 2500,
+      "undamaged_start": true,
+      "hostiles": 47,
+      "quadrant": [
+        8,
+        6
+      ],
+      "sector": [
+        5,
+        2
+      ],
+      "screenshot": "rank4-repeat/egatrek_001.png",
+      "screenshot_sha256": "a9704c36d8c63285920db29c9bd89043ec68c6d3dbce14a58f673eaa4c7e3a30"
+    },
+    {
+      "rank": 5,
+      "stardate": 3500.0,
+      "warp": 1.0,
+      "main_energy": 5000.0,
+      "impulse_energy": 500.0,
+      "shields": 2500,
+      "undamaged_start": true,
+      "hostiles": 55,
+      "quadrant": [
+        7,
+        4
+      ],
+      "sector": [
+        4,
+        6
+      ],
+      "screenshot": "egatrek_018.png",
+      "screenshot_sha256": "b8a057b9fc91e3782e16797b7d521929485b40839040d66328b6281b92bc0e2f"
+    }
+  ]
+}

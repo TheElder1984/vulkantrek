@@ -17,6 +17,10 @@ func run() -> void:
 	var time: float = scene.sim.elapsed
 	await create_timer(0.1).timeout
 	check(scene.sim.elapsed == time, "rendering never advances simulation")
+	scene.fill_command("LASERS 900 650")
+	check(scene.preview_label.text.contains("1550 main used") and scene.sim.elapsed == time, "visible cost preview does not execute order")
+	scene.prepare_command("SHUP")
+	check(scene.command.text == "SHUP" and not scene.sim.shields_up and scene.preview_label.text.contains("50 main used"), "shield shortcut prepares a priced order")
 	scene.prepare_command("LASERS")
 	check(scene.pending == "LASERS", "laser prompt entered")
 	scene.submit("900 650")
@@ -27,6 +31,9 @@ func run() -> void:
 	check(scene.sim.sector == Vector2i(4,2), "prepared navigation executes")
 	scene.submit("DOCK")
 	check(scene.sim.docked == 1, "docking through bridge")
+	scene.plot_quadrant(Vector2i(0, 0))
+	check(scene.sim.preview(scene.command.text).ok, "galaxy click chooses an empty arrival sector")
+	check(scene.mission_label.text.contains("days remaining"), "deadline visible on bridge")
 	scene.submit("S")
 	check(not scene.sim.ended and scene.sim.history.back().contains("SELF CONFIRM"), "S is guarded self-destruct, not save")
 	scene.show_help()

@@ -7,6 +7,8 @@ elif command -v godot4 >/dev/null 2>&1; then
   engine="$(command -v godot4)"
 elif command -v godot >/dev/null 2>&1; then
   engine="$(command -v godot)"
+elif [[ -x "$project_dir/build/Godot" ]]; then
+  engine="$project_dir/build/Godot"
 elif [[ -x /tmp/godot/Godot_v4.5.1-stable_linux.x86_64 ]]; then
   engine=/tmp/godot/Godot_v4.5.1-stable_linux.x86_64
 else
