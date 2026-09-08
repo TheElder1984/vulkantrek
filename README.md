@@ -1,13 +1,8 @@
 # VulkanTrek
 
-A Godot 4 command strategy game inspired by EGATrek, with a Vulkan Forward+
-bridge, procedural 3D ships, shields, weapon effects and a modern console.
+A playable Godot 4 reconstruction of Trek’s command bridge, with Vulkan Forward+, procedural 3D ships, a nebula sky, glowing engines, shield fields, weapon effects, and a modern console.
 
-**Status: complete Captain mission loop with an original ruleset.** Clear a
-finite invasion fleet, manage shared power, refit at stations and answer an
-optional relief call before the mission deadline. Exact DOS parity is not the
-product target. See [the plan](docs/PLAN.md), [rules](docs/RULES.md) and
-[validation results](docs/VALIDATION.md).
+**Status: playable reconstruction, not yet an exact Trek replacement.** The familiar command loop is implemented. Combat constants, mission generation, timing, scoring, and uncommon encounters still need comparison against the DOS executable. See [the parity register](docs/PARITY.md) and [implementation plan](docs/PLAN.md).
 
 ![VulkanTrek bridge](docs/bridge-preview.png)
 
@@ -94,14 +89,4 @@ To capture the live Vulkan bridge:
 
 ## Project structure
 
-- `scripts/simulation.gd`: mission generation, combat, navigation, costs and saves.
-- `scripts/bridge.gd`: command preparation, previews, help, sound and bridge UI.
-- `scripts/scanner.gd`: tactical map, fleet intelligence and relief marker.
-- `scripts/space_view.gd`, `shaders/`: procedural ships and visual effects.
-- `tests/`: rule regressions, bridge checks and full mission pilot.
-- `docs/`: rules, plan, validation and historical original-game observations.
-
-Godot owns the renderer; there are no native Vulkan bindings or third-party art
-assets. EGATrek is Nels Anderson's game. Our historical reference is the
-[EGATrek 3.1 shareware archive](https://www.dosgamesarchive.com/file/egatrek/egatrk31).
-Original files used for study are excluded from source control and game exports.
+Trek is Nels Anderson’s game. This project contains new code and procedural artwork, with no original executable, text, or graphics redistributed. The gameplay reference is particularly `TREK.DOC` and `TREK.REF` from its [original shareware archive](https://www.dosgamesarchive.com/file/trek/trk31). Godot’s [renderer documentation](https://docs.godotengine.org/en/stable/tutorials/rendering/renderers.html) describes Forward+ and Vulkan.
